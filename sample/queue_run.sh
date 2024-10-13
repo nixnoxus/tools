@@ -1,6 +1,6 @@
 #! /bin/bash
 
-# usage sample for: https://github.com/nixnoxus/tools/lib/queue_run.sh
+# usage sample for: https://github.com/nixnoxus/tools/tree/main/lib/queue_run.sh
 
 set -u -e
 
