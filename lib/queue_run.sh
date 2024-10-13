@@ -6,6 +6,11 @@
 # for usage sample see:
 #  https://github.com/nixnoxus/tools/sample/queue_run.sh
 
+test -n "$BASH_VERSION" || {
+    echo "error: bash need" >&2
+    exit 2
+}
+
 #
 # sample callback functions
 #
