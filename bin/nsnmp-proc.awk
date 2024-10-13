@@ -117,8 +117,8 @@ function stat (cpus, ints, ary,key,i,c,buffer,cputime) {
     setRecord("sys");
     FILE = OPT["PROC"] "/uptime";
     if ((c = getline < (FILE)) > 0) {
-        addRecordData("sysUpTime(C)", gensub(/\./, "", "", $1)); # FIXME
-        addRecordData("sysIdleTimeX(C)", gensub(/\./, "", "", $2)); # FIXME
+        addRecordData("sysUpTime(C)", gensub(/\./, "", 1, $1)); # FIXME
+        addRecordData("sysIdleTimeX(C)", gensub(/\./, "", 1, $2)); # FIXME
     }
     close_FILE(c);
 
@@ -658,7 +658,7 @@ BEGIN {
     T_START = systime();
             FILE = "/proc/uptime";
             if ((c = getline < (FILE)) > 0) {
-                U_START = gensub(/\./, "", "", $1); # FIXME:
+                U_START = gensub(/\./, "", 1, $1); # FIXME:
                 close(FILE);
             }
 
@@ -993,7 +993,7 @@ wa=0;
 
                 FILE = "/proc/uptime";
                 if ((c = getline < (FILE)) > 0) {
-                    msec = gensub(/\./, "", "", $1); # FIXME:
+                    msec = gensub(/\./, "", 1, $1); # FIXME:
                     close(FILE);
 #                    printf "# %ld %ld\n", last_msec+20, msec;
                     # sleep canceld ?
