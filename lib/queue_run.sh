@@ -54,11 +54,10 @@ cb_job_post_run () { # <Q> <JOB> <RC>
     esac
 }
 
-# global varialbes
+# global variables
 QUEUE_LOCK_FILE="${QUEUE_LOCK_FILE:-${TMPDIR:-/tmp}/${0##*/}-queue-log.lck}"
 QUEUE_DURATION_FMT="%H:%M:%S"
 QUEUE_TIME_FMT="%Y-%m-%dT%H:%M:%S%z"
-QUEUE_PIDS=()
 
 exec {QUEUE_LOCK_FD}<>"$QUEUE_LOCK_FILE"
 
@@ -90,42 +89,39 @@ queue_job_run () { # <Q> <JOB>
     return $rc
 }
 
-queue_wait () { # [Q]..
-    local q rc=0
-    # wait for jobs in specified queues
-    for q in "$@"
-    do  test -n "${QUEUE_PIDS[q]-}" || continue
-        queue_log $q "\e[90m* waiting pids ${QUEUE_PIDS[q]# }\e[0m"
-        wait ${QUEUE_PIDS[q]} || rc=$?
-        QUEUE_PIDS[q]=""
-    done
-    # reap jobs in other queues
-    for q in $(echo "${!QUEUE_PIDS[@]}" | tr ' ' '\n' | tac)
-    do  test -n "${QUEUE_PIDS[q]-}" || continue
-        kill -0 ${QUEUE_PIDS[q]} 2>/dev/null && continue
-        queue_log $q "\e[90m* finished pids ${QUEUE_PIDS[q]# }\e[0m"
-        wait ${QUEUE_PIDS[q]} || rc=$?
-        QUEUE_PIDS[q]=""
-    done
-    return $rc
-}
-
 queue_run () { # <JOB>
-    local job w q=0 job pid rc=0 s=$(date +%s)
-    rc_max () { # <A> <B>
-        test $1 -ge $2 && return $1 || return $2
-    }
-    for job in "$@"
-    do  read q w < <(cb_job_queue_wait "$q" "$job")
-        queue_wait $w || rc_max $? $rc || rc=$?
-        queue_job_run "$q" "$job" &
-        pid=$!
-        QUEUE_PIDS[q]="${QUEUE_PIDS[q]-} $pid"
-        queue_log $q "+ started $job pid $pid"
+    local jobs=("$@") j q=0 wq wj w_ary rc=0 s=$(date +%s)
+    local j2q=() j2wj=() j2pid=() j2rc=()
+    for j in ${!jobs[*]}
+    do  read q w_ary < <(cb_job_queue_wait "$q" "${jobs[j]}")
+        for wq in $w_ary
+        do  for wj in ${!j2q[*]}
+            do  test ${j2q[wj]} = $wq && j2wj[j]="${j2wj[j]-} $wj"
+            done
+        done
+        j2q[j]="$q"
+        j2wj[j]="${j2wj[j]-}"
+        #echo "job $j ${jobs[$j]} queue ${j2q[j]} waits for job ${j2wj[j]}"
     done
-    for q in $(echo "${!QUEUE_PIDS[@]}" | tr ' ' '\n' | tac)
-    do  queue_wait $q || rc_max $? $rc || rc=$?
+    while [ ${#j2rc[*]} -lt ${#jobs[*]} ]
+    do  for wj in ${!j2pid[*]}
+        do  kill -0 ${j2pid[wj]} 2>/dev/null && continue || :
+            test -z "${j2rc[wj]-}" || continue
+            wait ${j2pid[wj]} && j2rc[wj]=0 || j2rc[wj]=$?
+            test $rc -ge ${j2rc[wj]} || rc=${j2rc[wj]}
+            #queue_log ${j2q[wj]} "\e[90m* ${job[wj]} finished with rc ${j2rc[wj]}\e[0m"
+        done
+        for j in ${!jobs[*]}
+        do  test -z "${j2pid[j]-}" || continue # not running
+            for wj in ${j2wj[j]-}
+            do  test -n "${j2pid[wj]-}" -a -n "${j2rc[wj]-}" || break 2
+            done
+            queue_job_run "${j2q[j]}" "${jobs[j]}" &
+            j2pid[j]=$!
+            queue_log ${j2q[j]} "+ ${jobs[j]} started with pid ${j2pid[j]}"
+        done
+        wait -n || :
     done
-    queue_log "" "${#@} jobs finished" "$rc" $[$(date +%s)-s]
+    queue_log "" "${#jobs[*]} jobs finished" "$rc" "$[$(date +%s)-s]"
     return $rc
 }
