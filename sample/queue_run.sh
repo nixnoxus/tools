@@ -6,16 +6,23 @@ set -u -e
 
 . "${0%/*}"/../lib/queue_run.sh
 
+QUEUE_TIME_FMT=
+
 JOBS=(
     queue_0_job_0
     queue_0_job_1
 
-    queue_3_wait_0_job_0
+    queue_3_wait_0_job_2
 
-    queue_2_wait_0_job_0
-    queue_2_wait_0_job_1
+    queue_2_wait_0_job_3
+    queue_2_wait_0_job_4
     
-    queue_1_wait_2_3_job_0
+    queue_0_wait_0_job_5
+
+    queue_1_wait_2_3_job_6
+    queue_1_wait_2_3_job_7
+
+    queue_0_wait_0_job_8
 )
 
 cb_job_queue_wait () { # <Q> <JOB>
@@ -24,6 +31,7 @@ cb_job_queue_wait () { # <Q> <JOB>
     queue_3_wait_0_job*)   echo 3 0 ;;
     queue_2_wait_0_job*)   echo 2 0 ;;
     queue_1_wait_2_3_job*) echo 1 2 3 ;;
+    queue_0_wait_0_job*)   echo 0 0 ;;
     *)                     echo 0 0 $q ;;
     esac
 }
@@ -31,7 +39,7 @@ cb_job_queue_wait () { # <Q> <JOB>
 cb_job_run () { # <Q> <JOB>
     local q="$1" job="$2"
     sleep $[1+q]
-    echo "output from $job in Q=$q"
+    #echo "output from $job in Q=$q"
     return $[q%3]
 }
 

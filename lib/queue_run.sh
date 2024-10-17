@@ -101,8 +101,14 @@ queue_run () { # <JOB>
         done
         j2q[j]="$q"
         j2wj[j]="${j2wj[j]-}"
-        #echo "job $j ${jobs[$j]} queue ${j2q[j]} waits for job ${j2wj[j]}"
+        #echo "$(cb_indent "${j2q[j]}")[job $j ${jobs[$j]} queue ${j2q[j]} waits for job ${j2wj[j]}"
     done
+    can_run () { # <J>
+        local j="$1" wj
+        test -z "${j2pid[j]-}" && for wj in ${j2wj[j]-}
+        do  test -n "${j2pid[wj]-}" -a -n "${j2rc[wj]-}" || return 1
+        done
+    }
     while [ ${#j2rc[*]} -lt ${#jobs[*]} ]
     do  for wj in ${!j2pid[*]}
         do  kill -0 ${j2pid[wj]} 2>/dev/null && continue || :
@@ -112,10 +118,7 @@ queue_run () { # <JOB>
             #queue_log ${j2q[wj]} "\e[90m* ${job[wj]} finished with rc ${j2rc[wj]}\e[0m"
         done
         for j in ${!jobs[*]}
-        do  test -z "${j2pid[j]-}" || continue # not running
-            for wj in ${j2wj[j]-}
-            do  test -n "${j2pid[wj]-}" -a -n "${j2rc[wj]-}" || break 2
-            done
+        do  can_run "$j" || continue
             queue_job_run "${j2q[j]}" "${jobs[j]}" &
             j2pid[j]=$!
             queue_log ${j2q[j]} "+ ${jobs[j]} started with pid ${j2pid[j]}"
