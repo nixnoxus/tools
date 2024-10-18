@@ -58,6 +58,11 @@ cb_job_post_run () { # <Q> <JOB> <RC>
 QUEUE_LOCK_FILE="${QUEUE_LOCK_FILE:-${TMPDIR:-/tmp}/${0##*/}-queue-log.lck}"
 QUEUE_DURATION_FMT="%H:%M:%S"
 QUEUE_TIME_FMT="%Y-%m-%dT%H:%M:%S%z"
+QUEUE_FS='|'
+
+cb_duration () { # <SECONDS>
+    date -u -d "@$1" "+$QUEUE_DURATION_FMT"
+}
 
 exec {QUEUE_LOCK_FD}<>"$QUEUE_LOCK_FILE"
 
@@ -71,7 +76,7 @@ queue_log () { # [-n] <Q> <MESSAGE> [RC] [S]
     local q="$1" msg="$2" rc="${3-}" s="${4-}"
     msg="${q:+$(cb_indent "$q")[Q=$q]} $msg"
     rc="${rc:+ with rc $(cb_rc_e "$rc")$rc\e[0m}"
-    s="${s:+ after $(date -u -d "@$s" "+$QUEUE_DURATION_FMT")}"
+    s="${s:+ after $(cb_duration "$s")}"
     "${lock_cmd[@]}" echo -e "$(date "+$QUEUE_TIME_FMT") $msg$rc$s"
 }
 
@@ -90,8 +95,10 @@ queue_job_run () { # <Q> <JOB>
 }
 
 queue_run () { # <JOB>
-    local jobs=("$@") j q=0 wq wj w_ary rc=0 s=$(date +%s)
-    local j2q=() j2wj=() j2pid=() j2rc=()
+    local jobs=("$@") j q=0 wq wj w_ary rc=0 s=$(date +%s) l=0
+    local j2q=() j2wj=()
+
+    # prepare queues
     for j in ${!jobs[*]}
     do  read q w_ary < <(cb_job_queue_wait "$q" "${jobs[j]}")
         for wq in $w_ary
@@ -101,12 +108,18 @@ queue_run () { # <JOB>
         done
         j2q[j]="$q"
         j2wj[j]="${j2wj[j]-}"
+        test $l -ge ${#jobs[j]} || l=${#jobs[j]}
         #echo "$(cb_indent "${j2q[j]}")[job $j ${jobs[$j]} queue ${j2q[j]} waits for job ${j2wj[j]}"
     done
+
+    # run jobs in queues
+    local j2pid=() j2rc=() j2run=() j2fin=() j2blk=()
     can_run () { # <J>
         local j="$1" wj
         test -z "${j2pid[j]-}" && for wj in ${j2wj[j]-}
-        do  test -n "${j2pid[wj]-}" -a -n "${j2rc[wj]-}" || return 1
+        do  test -n "${j2pid[wj]-}" || return 1
+            test -n "${j2blk[j]-}" || j2blk[j]=$(date +%s)
+            test -n "${j2rc[wj]-}" || return 1
         done
     }
     while [ ${#j2rc[*]} -lt ${#jobs[*]} ]
@@ -114,17 +127,40 @@ queue_run () { # <JOB>
         do  kill -0 ${j2pid[wj]} 2>/dev/null && continue || :
             test -z "${j2rc[wj]-}" || continue
             wait ${j2pid[wj]} && j2rc[wj]=0 || j2rc[wj]=$?
+            j2fin[wj]=$(date +%s)
             test $rc -ge ${j2rc[wj]} || rc=${j2rc[wj]}
-            #queue_log ${j2q[wj]} "\e[90m* ${job[wj]} finished with rc ${j2rc[wj]}\e[0m"
+            #queue_log ${j2q[wj]} "\e[90m* ${jobs[wj]} finished with rc ${j2rc[wj]}\e[0m"
         done
         for j in ${!jobs[*]}
         do  can_run "$j" || continue
             queue_job_run "${j2q[j]}" "${jobs[j]}" &
             j2pid[j]=$!
+            j2run[j]=$(date +%s)
             queue_log ${j2q[j]} "+ ${jobs[j]} started with pid ${j2pid[j]}"
         done
         wait -n || :
     done
-    queue_log "" "${#jobs[*]} jobs finished" "$rc" "$[$(date +%s)-s]"
+    let s=$(date +%s)-s || :
+    queue_log "" "${#jobs[*]} jobs finished" "$rc" "$s"
+
+    # some statistics
+    local f="%3s %3s %-${l}s %3s %${s}s %${s}s %${s}s"
+    s="$(cb_duration "$s")" || :
+    test ${#s} -gt 6 && s=${#s} || s=6
+    printf "\e[90m${f// /$QUEUE_FS}${QUEUE_FS}%s\n" \
+        "#j" "#q" "job" "rc" "rtime" "wtime" "btime" "blocked by #j"
+    for j in ${!jobs[*]}
+    do  printf "${f// /$QUEUE_FS}" "$j" "${j2q[j]}" \
+            "${jobs[j]}" ${j2rc[j]} \
+            "$(cb_duration $[${j2fin[j]}-${j2run[j]}])" \
+            "$(cb_duration $[${j2run[j]}-${j2run[0]}])" \
+            "$(cb_duration $[${j2run[j]}-${j2blk[j]-${j2run[j]}}])"
+        printf "${QUEUE_FS}%s" "${j2wj[j]}"
+        #for wj in ${j2wj[j]}
+        #do  printf " %s" "${jobs[wj]}"
+        #done
+        printf "\n"
+    done
+    echo -en "\e[0m"
     return $rc
 }

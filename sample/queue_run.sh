@@ -6,7 +6,8 @@ set -u -e
 
 . "${0%/*}"/../lib/queue_run.sh
 
-QUEUE_TIME_FMT=
+#QUEUE_TIME_FMT=
+QUEUE_DURATION_FMT="%ss"
 
 JOBS=(
     queue_0_job_0
