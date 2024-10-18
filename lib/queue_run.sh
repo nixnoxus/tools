@@ -158,9 +158,9 @@ queue_run () { # <JOB>
     trap - "$QUEUE_PHASE_OUT_SIG"
 
     # some statistics
-    local f="%3s %3s %-${l}s %3s %${s}s %${s}s %${s}s"
     s="$(cb_duration "$s")" || :
     test ${#s} -gt 6 && s=${#s} || s=6
+    local f="%3s %3s %-${l}s %3s %${s}s %${s}s %${s}s"
     printf "\e[90m${f// /$QUEUE_FS}${QUEUE_FS}%s\n" \
         "#j" "#q" "job" "rc" "rtime" "wtime" "btime" "blocked by #j"
     for j in ${!jobs[*]}
