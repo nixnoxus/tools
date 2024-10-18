@@ -59,6 +59,8 @@ QUEUE_LOCK_FILE="${QUEUE_LOCK_FILE:-${TMPDIR:-/tmp}/${0##*/}-queue-log.lck}"
 QUEUE_DURATION_FMT="%H:%M:%S"
 QUEUE_TIME_FMT="%Y-%m-%dT%H:%M:%S%z"
 QUEUE_FS='|'
+QUEUE_PID=
+QUEUE_PHASE_OUT_SIG=SIGUSR1
 
 cb_duration () { # <SECONDS>
     date -u -d "@$1" "+$QUEUE_DURATION_FMT"
@@ -89,14 +91,15 @@ queue_job_run () { # <Q> <JOB>
     local msg="- $job finished"
     flock -x "$QUEUE_LOCK_FD"
     queue_log -n "$q" "$msg" "$rc" "$s"
-    cb_job_post_run "$q" "$job" "$rc"
+    cb_job_post_run "$q" "$job" "$rc" || :
     flock -u "$QUEUE_LOCK_FD"
     return $rc
 }
 
 queue_run () { # <JOB>
-    local jobs=("$@") j q=0 wq wj w_ary rc=0 s=$(date +%s) l=0
+    local jobs=("$@") j q=0 wq wj w_ary s=$(date +%s) l=0
     local j2q=() j2wj=()
+    QUEUE_PID=$$
 
     # prepare queues
     for j in ${!jobs[*]}
@@ -113,7 +116,16 @@ queue_run () { # <JOB>
     done
 
     # run jobs in queues
-    local j2pid=() j2rc=() j2run=() j2fin=() j2blk=()
+    local rc=0 j2pid=() j2rc=() j2run=() j2fin=() j2blk=()
+    phase_out () {
+        local j
+        for j in ${!jobs[*]}
+        do  test -n "${j2pid[j]-}" && continue
+            j2pid[j]=${j2rc[j]-N}
+            j2rc[j]=${j2rc[j]-N}
+        done
+        queue_log "" "\e[90m* .. signal $QUEUE_PHASE_OUT_SIG recieved, phase out ..\e[0m"
+    }
     can_run () { # <J>
         local j="$1" wj
         test -z "${j2pid[j]-}" && for wj in ${j2wj[j]-}
@@ -122,6 +134,7 @@ queue_run () { # <JOB>
             test -n "${j2rc[wj]-}" || return 1
         done
     }
+    trap phase_out "$QUEUE_PHASE_OUT_SIG"
     while [ ${#j2rc[*]} -lt ${#jobs[*]} ]
     do  for wj in ${!j2pid[*]}
         do  kill -0 ${j2pid[wj]} 2>/dev/null && continue || :
@@ -142,6 +155,7 @@ queue_run () { # <JOB>
     done
     let s=$(date +%s)-s || :
     queue_log "" "${#jobs[*]} jobs finished" "$rc" "$s"
+    trap - "$QUEUE_PHASE_OUT_SIG"
 
     # some statistics
     local f="%3s %3s %-${l}s %3s %${s}s %${s}s %${s}s"
@@ -150,7 +164,8 @@ queue_run () { # <JOB>
     printf "\e[90m${f// /$QUEUE_FS}${QUEUE_FS}%s\n" \
         "#j" "#q" "job" "rc" "rtime" "wtime" "btime" "blocked by #j"
     for j in ${!jobs[*]}
-    do  printf "${f// /$QUEUE_FS}" "$j" "${j2q[j]}" \
+    do  test -n "${j2fin[j]-}" || continue
+        printf "${f// /$QUEUE_FS}" "$j" "${j2q[j]}" \
             "${jobs[j]}" ${j2rc[j]} \
             "$(cb_duration $[${j2fin[j]}-${j2run[j]}])" \
             "$(cb_duration $[${j2run[j]}-${j2run[0]}])" \
